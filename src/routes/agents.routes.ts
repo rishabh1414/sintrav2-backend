@@ -1,90 +1,85 @@
 import { Router } from "express";
-import OpenAI from "openai";
+import { askED } from "../services/ed.service";
 import { MessageModel } from "../models/Message";
 import { Employee } from "../models/Employee";
-import { getWorkspaceId } from "../utils/workspace";
 
 export const agentsRouter = Router();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
-// POST /api/agents/ed/ask
+// 💬 ED Chat Route
 agentsRouter.post("/ed/ask", async (req, res) => {
   try {
-    const workspaceId = getWorkspaceId(req);
-    const { employeeId, text } = req.body as {
-      employeeId?: string;
-      text?: string;
-    };
+    const workspaceId = req.headers["x-workspace-id"] as string;
+    const { chatEmployeeId, userText } = req.body;
 
-    if (!workspaceId) {
-      return res.status(400).json({ error: "Missing x-workspace-id header" });
-    }
-    if (!employeeId || !text?.trim()) {
-      return res
-        .status(400)
-        .json({ error: "employeeId and text are required" });
+    if (!workspaceId || !chatEmployeeId || !userText) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // Optional: fetch employee to use their systemPrompt / role
-    const employee = await Employee.findOne({
-      _id: employeeId,
+    // Save user message
+    await MessageModel.create({
       workspaceId,
-    }).lean();
-    if (!employee) return res.status(404).json({ error: "Employee not found" });
-
-    const systemPrompt =
-      employee.systemPrompt ||
-      "You are a professional AI executive director. Respond concisely and precisely. No headers/footers/greetings.";
-
-    // 1) Persist the USER message right away
-    const userMsg = await MessageModel.create({
-      workspaceId,
-      employeeId,
+      employeeId: chatEmployeeId,
       sender: "user",
-      text: text.trim(),
+      text: userText,
       ts: Date.now(),
     });
 
-    // 2) Call OpenAI for a professional reply
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `Employee: ${employee.name} (${
-            employee.role
-          })\nUser request: ${text.trim()}`,
-        },
-      ],
-      temperature: 0.6,
-      max_tokens: 600,
-    });
+    // Route through ED
+    const edResponse = await askED({ workspaceId, chatEmployeeId, userText });
 
-    const reply =
-      completion.choices?.[0]?.message?.content?.trim() ||
-      "I couldn't generate a response.";
+    let routedToName: string | undefined;
+    if (edResponse.routedToId) {
+      const routedEmp = await Employee.findById(edResponse.routedToId).lean();
+      routedToName = routedEmp?.name;
+    }
 
-    // 3) Persist the AGENT message
+    // Save agent reply
     const agentMsg = await MessageModel.create({
       workspaceId,
-      employeeId,
+      employeeId: chatEmployeeId,
       sender: "agent",
-      text: reply,
+      text: edResponse.message,
       ts: Date.now(),
+      routedTo: edResponse.routedToId,
+      routedToName,
     });
 
     return res.json({
-      message: reply,
-      saved: { user: userMsg._id, agent: agentMsg._id },
+      message: agentMsg.text,
+      routedToId: edResponse.routedToId,
+      routedToName,
     });
   } catch (err) {
-    console.error("❌ ED Agent error:", err);
-    const message =
-      err instanceof Error ? err.message : "Failed to process agent message";
-    return res.status(500).json({ error: message });
+    console.error("[ED Ask] ❌", err);
+    return res.status(500).json({ error: "ED ask failed" });
+  }
+});
+
+// 📨 Get Message History
+agentsRouter.get("/messages/:employeeId", async (req, res) => {
+  try {
+    const workspaceId = req.headers["x-workspace-id"] as string;
+    const { employeeId } = req.params;
+
+    const messages = await MessageModel.find({ workspaceId, employeeId })
+      .sort({ ts: 1 })
+      .lean();
+
+    res.json(messages);
+  } catch (err) {
+    console.error("[GET Messages] ❌", err);
+    res.status(500).json({ error: "Failed to fetch messages" });
+  }
+});
+
+// 👥 Get Employees
+agentsRouter.get("/employees", async (req, res) => {
+  try {
+    const workspaceId = req.headers["x-workspace-id"] as string;
+    const employees = await Employee.find({ workspaceId }).lean();
+    res.json(employees);
+  } catch (err) {
+    console.error("[GET Employees] ❌", err);
+    res.status(500).json({ error: "Failed to fetch employees" });
   }
 });

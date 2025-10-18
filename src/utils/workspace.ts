@@ -1,10 +1,15 @@
 import { Request } from "express";
 
 /**
- * Extracts the workspace ID from the `x-workspace-id` header.
- * Returns undefined if not provided.
+ * Pulls workspace id from header `x-workspace-id`.
+ * Falls back to req.user?.workspaceId if you attach it in auth.
  */
-export function getWorkspaceId(req: Request): string | undefined {
-  const workspaceId = req.header("x-workspace-id");
-  return workspaceId && workspaceId.trim() !== "" ? workspaceId : undefined;
+export function getWorkspaceId(req: Request): string | null {
+  const fromHeader = (
+    req.headers["x-workspace-id"] as string | undefined
+  )?.trim();
+  if (fromHeader) return fromHeader;
+
+  const fromUser = (req as any).user?.workspaceId as string | undefined;
+  return fromUser?.trim() || null;
 }

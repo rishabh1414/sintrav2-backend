@@ -1,22 +1,31 @@
-import { Schema, model, Document } from "mongoose";
+import { Schema, model } from "mongoose";
 
-export interface MessageDoc extends Document {
-  workspaceId: string;
-  employeeId: string;
-  sender: "user" | "agent" | "system";
-  structured?: any;
-  text: string;
-}
-
-const MessageSchema = new Schema<MessageDoc>(
-  {
-    workspaceId: { type: String, required: true },
-    employeeId: { type: String, required: true },
-    sender: { type: String, enum: ["user", "agent", "system"], required: true },
-    text: { type: String, required: true },
-    structured: { type: Object },
+const messageSchema = new Schema({
+  workspaceId: {
+    type: String,
+    required: true, // ✅ this is why it's failing when undefined
   },
-  { timestamps: true }
-);
+  employeeId: {
+    type: String,
+    required: true,
+  },
+  sender: {
+    type: String,
+    enum: ["user", "agent"],
+    required: true,
+  },
+  text: {
+    type: String,
+    required: true,
+  },
+  ts: {
+    type: Number,
+    required: true,
+  },
+  routedTo: {
+    type: String,
+    required: false,
+  },
+});
 
-export const Message = model<MessageDoc>("Message", MessageSchema);
+export const MessageModel = model("Message", messageSchema);
