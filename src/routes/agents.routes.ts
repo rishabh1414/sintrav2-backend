@@ -1,85 +1,79 @@
-import { Router } from "express";
-import { askED } from "../services/ed.service";
+// src/routes/agents.routes.ts
+import { Router, Request, Response } from "express";
+import { requireAuth } from "../middleware/auth"; // ← make sure this sets req.userId
 import { MessageModel } from "../models/Message";
 import { Employee } from "../models/Employee";
+import { askED } from "../services/ed.service";
 
 export const agentsRouter = Router();
 
-// 💬 ED Chat Route
-agentsRouter.post("/ed/ask", async (req, res) => {
+/**
+ * POST /api/agents/ed/ask
+ * Body:
+ * {
+ *   employeeId?: string,       // preferred
+ *   chatEmployeeId?: string,   // legacy alias
+ *   userText: string
+ * }
+ * Headers:
+ *   Authorization: Bearer <token>
+ *   x-workspace-id: <workspaceId>
+ */
+agentsRouter.post("/ed/ask", requireAuth, async (req, res) => {
   try {
     const workspaceId = req.headers["x-workspace-id"] as string;
     const { chatEmployeeId, userText } = req.body;
+    const userId = (req as any).userId;
 
     if (!workspaceId || !chatEmployeeId || !userText) {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthenticated" });
+    }
 
-    // Save user message
+    // 1) store the user’s message scoped by userId
     await MessageModel.create({
       workspaceId,
-      employeeId: chatEmployeeId,
+      chatEmployeeId,
       sender: "user",
       text: userText,
+      userId,
       ts: Date.now(),
     });
 
-    // Route through ED
+    // 2) get ED’s response (and potential routing)
     const edResponse = await askED({ workspaceId, chatEmployeeId, userText });
 
-    let routedToName: string | undefined;
-    if (edResponse.routedToId) {
-      const routedEmp = await Employee.findById(edResponse.routedToId).lean();
+    let routedToId = edResponse.routedToId;
+    let routedToName: string | undefined = edResponse.routedToName;
+
+    if (routedToId && !routedToName) {
+      const routedEmp = await Employee.findById(routedToId)
+        .select("name")
+        .lean();
       routedToName = routedEmp?.name;
     }
 
-    // Save agent reply
+    // 3) store the agent/system message scoped by userId
     const agentMsg = await MessageModel.create({
       workspaceId,
-      employeeId: chatEmployeeId,
+      chatEmployeeId,
       sender: "agent",
-      text: edResponse.message,
+      text: edResponse.message || "(no response)",
       ts: Date.now(),
-      routedTo: edResponse.routedToId,
+      routedTo: routedToId,
       routedToName,
+      userId, // <— IMPORTANT
     });
 
     return res.json({
       message: agentMsg.text,
-      routedToId: edResponse.routedToId,
+      routedToId,
       routedToName,
     });
   } catch (err) {
-    console.error("[ED Ask] ❌", err);
+    console.error("[ED Ask] Error:", err);
     return res.status(500).json({ error: "ED ask failed" });
-  }
-});
-
-// 📨 Get Message History
-agentsRouter.get("/messages/:employeeId", async (req, res) => {
-  try {
-    const workspaceId = req.headers["x-workspace-id"] as string;
-    const { employeeId } = req.params;
-
-    const messages = await MessageModel.find({ workspaceId, employeeId })
-      .sort({ ts: 1 })
-      .lean();
-
-    res.json(messages);
-  } catch (err) {
-    console.error("[GET Messages] ❌", err);
-    res.status(500).json({ error: "Failed to fetch messages" });
-  }
-});
-
-// 👥 Get Employees
-agentsRouter.get("/employees", async (req, res) => {
-  try {
-    const workspaceId = req.headers["x-workspace-id"] as string;
-    const employees = await Employee.find({ workspaceId }).lean();
-    res.json(employees);
-  } catch (err) {
-    console.error("[GET Employees] ❌", err);
-    res.status(500).json({ error: "Failed to fetch employees" });
   }
 });

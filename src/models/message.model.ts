@@ -1,31 +1,17 @@
 import { Schema, model } from "mongoose";
 
-const messageSchema = new Schema({
-  workspaceId: {
-    type: String,
-    required: true, // ✅ this is why it's failing when undefined
-  },
-  employeeId: {
-    type: String,
-    required: true,
-  },
-  sender: {
-    type: String,
-    enum: ["user", "agent"],
-    required: true,
-  },
-  text: {
-    type: String,
-    required: true,
-  },
-  ts: {
-    type: Number,
-    required: true,
-  },
-  routedTo: {
-    type: String,
-    required: false,
-  },
+const MessageSchema = new Schema({
+  workspaceId: { type: String, required: true },
+  chatEmployeeId: { type: String, required: true }, // <— keep this name consistent
+  sender: { type: String, enum: ["user", "agent", "system"], required: true },
+  text: { type: String, required: true },
+  routedTo: { type: String },
+  routedToName: { type: String },
+  userId: { type: String, required: true }, // <— critical for per-user scoping
+  ts: { type: Number, required: true },
 });
 
-export const MessageModel = model("Message", messageSchema);
+// Fast queries by tenant + employee + user
+MessageSchema.index({ workspaceId: 1, chatEmployeeId: 1, userId: 1, ts: 1 });
+
+export const MessageModel = model("Message", MessageSchema);

@@ -1,28 +1,37 @@
 import { Router, Request, Response } from "express";
 import { MessageModel } from "../models/Message";
 import { getWorkspaceId } from "../utils/workspace";
+import { requireAuth } from "../middleware/auth";
 
 export const messagesRouter = Router();
 
-// GET /api/messages/:employeeId
-messagesRouter.get("/:employeeId", async (req: Request, res: Response) => {
+// GET /api/messages/:employeeId — load chat for this user+employee
+messagesRouter.get("/:employeeId", requireAuth, async (req, res) => {
   try {
-    const workspaceId = getWorkspaceId(req);
-    const { employeeId } = req.params;
+    const workspaceId = req.headers["x-workspace-id"] as string;
+    const chatEmployeeId = req.params.employeeId; // route param
+    const userId = (req as any).userId;
 
-    if (!workspaceId) {
-      return res.status(400).json({ error: "Missing x-workspace-id header" });
+    if (!workspaceId || !chatEmployeeId) {
+      return res
+        .status(400)
+        .json({ error: "Missing workspaceId or employeeId" });
+    }
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthenticated" });
     }
 
-    const history = await MessageModel.find({ workspaceId, employeeId })
+    const messages = await MessageModel.find({
+      workspaceId,
+      chatEmployeeId, // <— must match the model field name
+      userId, // <— filter by the current user
+    })
       .sort({ ts: 1 })
       .lean();
 
-    // Always return an array (even if empty) so the client doesn't break
-    return res.json(history);
-  } catch (err: any) {
-    return res
-      .status(500)
-      .json({ error: err?.message || "Failed to load messages" });
+    res.json(messages);
+  } catch (err) {
+    console.error("[GET Messages] Error:", err);
+    res.status(500).json({ error: "Failed to load messages" });
   }
 });

@@ -1,7 +1,7 @@
+import { env } from "./config/env";
 import { buildApp } from "./app";
 import { connectMongo } from "./config/mongo";
 import { getRedis } from "./config/redis";
-import { env } from "./config/env";
 
 async function main() {
   await connectMongo();

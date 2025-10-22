@@ -33,6 +33,7 @@ export class AuthService {
 
   static verifyToken(token: string) {
     const secret: Secret = env.JWT_SECRET as Secret;
+    console.log(env.JWT_SECRET);
     return jwt.verify(token, secret) as JwtPayload;
   }
 

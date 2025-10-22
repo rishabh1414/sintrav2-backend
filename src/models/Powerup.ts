@@ -1,52 +1,87 @@
-import mongoose, { Schema } from "mongoose";
+// src/models/Powerup.ts
+import mongoose, { Schema, Document, Model } from "mongoose";
 
-export interface PowerupDoc {
-  _id: string; // stable key, e.g. "write_blog"
+export type PowerupInputField =
+  | {
+      name: string;
+      label?: string;
+      type:
+        | "text"
+        | "longtext"
+        | "select"
+        | "number"
+        | "url"
+        | "email"
+        | "date";
+      required?: boolean;
+      options?: string[];
+    }
+  | { name: string; label?: string; type: "boolean"; required?: boolean };
+
+export interface PowerupDoc extends Document {
+  workspaceId: string;
+  key: string; // unique per workspace
   name: string;
   description?: string;
-  categories: string[]; // e.g., ["marketing","content"]
-  tools: string[]; // e.g., ["web_search","brand_memory"]
-  modelDefault?: string; // e.g., "gpt-4o-mini"
+  // Either route by category OR pin to a specific employee
+  employeeCategory?: string;
+  assignedEmployeeId?: string | null;
 
-  // JSON Schema for inputs/outputs (runtime validated via AJV in service)
-  inputSchema?: Record<string, any>;
-  outputSchema?: Record<string, any>;
+  inputs?: PowerupInputField[];
+  systemPrompt?: string;
+  outputFormat?: string;
+  active: boolean;
 
-  systemPrompt: string;
-
-  // Multi-tenant override: if set, this is scoped to a workspace and
-  // overrides the global power-up with same _id.
-  workspaceId?: string;
-
-  enabled: boolean;
-  version: number; // increment on breaking changes
-  createdAt: Date;
+  createdBy?: string | null;
   updatedAt: Date;
-  deletedAt?: Date | null; // soft delete
+  createdAt: Date;
 }
 
 const PowerupSchema = new Schema<PowerupDoc>(
   {
-    _id: { type: String, required: true }, // key
+    workspaceId: { type: String, required: true, index: true },
+    key: { type: String, required: true },
     name: { type: String, required: true },
     description: { type: String },
-    categories: { type: [String], default: [] },
-    tools: { type: [String], default: [] },
-    modelDefault: { type: String },
-    inputSchema: { type: Schema.Types.Mixed },
-    outputSchema: { type: Schema.Types.Mixed },
-    systemPrompt: { type: String, required: true },
-    workspaceId: { type: String, index: true }, // null/undefined => global
-    enabled: { type: Boolean, default: true, index: true },
-    version: { type: Number, default: 1 },
-    deletedAt: { type: Date, default: null },
+
+    employeeCategory: { type: String },
+    assignedEmployeeId: { type: String, default: null },
+
+    inputs: [
+      {
+        name: { type: String, required: true },
+        label: { type: String },
+        type: {
+          type: String,
+          enum: [
+            "text",
+            "longtext",
+            "select",
+            "number",
+            "url",
+            "email",
+            "date",
+            "boolean",
+          ],
+          required: true,
+        },
+        required: { type: Boolean, default: false },
+        options: [{ type: String }],
+      },
+    ],
+
+    systemPrompt: { type: String },
+    outputFormat: { type: String },
+    active: { type: Boolean, default: true },
+
+    createdBy: { type: String, default: null },
   },
-  { timestamps: { createdAt: "createdAt", updatedAt: "updatedAt" } }
+  { timestamps: true }
 );
 
-// Ensure only one active override per (workspaceId,_id)
-PowerupSchema.index({ _id: 1, workspaceId: 1, deletedAt: 1 }, { unique: true });
+// Unique per workspace
+PowerupSchema.index({ workspaceId: 1, key: 1 }, { unique: true });
 
-export const PowerupModel =
-  (mongoose.models.Powerup as mongoose.Model<PowerupDoc>) ||
+export const Powerup: Model<PowerupDoc> =
+  mongoose.models.Powerup ||
   mongoose.model<PowerupDoc>("Powerup", PowerupSchema);
